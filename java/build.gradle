@@ -1,0 +1,51 @@
+// Gradle build for the Vivisect-Ghidra bridge plugin.
+// Builds outside the Ghidra source tree.
+plugins { id 'java' }
+
+group = 'vivghidra'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+// Find Ghidra installation
+def ghidraDir = project.findProperty('ghidraInstallDir')
+    ?: System.env.GHIDRA_INSTALL_DIR
+    ?: '/opt/ghidra'
+
+if (!file(ghidraDir).exists()) {
+    logger.warn("Ghidra installation not found at: ${ghidraDir}")
+    logger.warn("Set GHIDRA_INSTALL_DIR or pass -PghidraInstallDir=/path/to/ghidra")
+}
+
+// Add all Ghidra jars to classpath
+dependencies {
+    if (file(ghidraDir).exists()) {
+        fileTree("${ghidraDir}").matching { include '**/lib/*.jar' }
+            .each { f -> implementation files(f) }
+    }
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+}
+
+test { useJUnitPlatform() }
+
+// Build extension zip
+task buildExtension(type: Zip, dependsOn: jar) {
+    from(jar.archiveFile)
+    from('extension.properties') {
+        filter { it.replace('@extversion@', version) }
+    }
+    from('Module.manifest')
+    archiveBaseName = 'vivghidra'
+    archiveVersion = version
+    destinationDirectory = file("${buildDir}/dist")
+}
+
+// Shell-only build (no Gradle needed)
+task compileOnly {
+    // Placeholder — use build.sh for shell-only builds
+}
