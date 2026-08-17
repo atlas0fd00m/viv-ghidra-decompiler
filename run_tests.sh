@@ -64,6 +64,16 @@ cd "$SCRIPT_DIR"
 python3 tests/integration_test.py || FAIL=1
 echo ""
 
+# ─── 4. E2E tests (requires running Ghidra server) ───
+echo "─── E2E Tests (requires running Ghidra server on localhost:13100) ───"
+if python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',13100)); s.close()" 2>/dev/null; then
+    python3 tests/e2e_test.py || FAIL=1
+else
+    echo "  Skipped — no Ghidra server running on localhost:13100"
+    echo "  Start one with: scripts/start_ghidra_headless.sh /path/to/binary"
+fi
+echo ""
+
 # ─── Summary ───
 echo "═══════════════════════════════════════════════════════════════"
 if [ $FAIL -eq 0 ]; then
