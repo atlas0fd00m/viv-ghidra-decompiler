@@ -136,6 +136,12 @@ public class StartBridgeServer extends GhidraScript {
             }
             case "apply_symbols":
                 return applySymbols(params);
+            case "set_comment":
+                return setComment(params);
+            case "rename_symbol":
+                return renameSymbol(params);
+            case "set_signature":
+                return setSignature(params);
             default:
                 throw new IllegalArgumentException("Unknown method: " + method);
         }
@@ -220,6 +226,143 @@ public class StartBridgeServer extends GhidraScript {
         result.put("failed", failed);
         result.put("success", true);
         println("Applied " + applied + " symbols (" + failed + " failed) from Vivisect");
+        return result;
+    }
+
+    // ─── UI feature methods ───
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> setComment(Map<String, Object> params) {
+        String addrStr = getString(params, "address", "");
+        String comment = getString(params, "comment", "");
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (addrStr.isEmpty()) {
+            result.put("success", false);
+            result.put("error", "Missing address");
+            return result;
+        }
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
+            if (addr == null) {
+                result.put("success", false);
+                result.put("error", "Invalid address: " + addrStr);
+                return result;
+            }
+            currentProgram.getListing().setComment(addr, CodeUnit.EOL_COMMENT, comment);
+            result.put("success", true);
+            println("Set comment at " + addrStr + ": " + (comment.length() > 50 ? comment.substring(0, 50) + "..." : comment));
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> renameSymbol(Map<String, Object> params) {
+        String addrStr = getString(params, "address", "");
+        String name = getString(params, "name", "");
+        boolean isFunction = getBool(params, "is_function", true);
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (addrStr.isEmpty() || name.isEmpty()) {
+            result.put("success", false);
+            result.put("error", "Missing address or name");
+            return result;
+        }
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
+            if (addr == null) {
+                result.put("success", false);
+                result.put("error", "Invalid address: " + addrStr);
+                return result;
+            }
+            if (isFunction) {
+                Function func = currentProgram.getFunctionManager().getFunctionAt(addr);
+                if (func == null) {
+                    result.put("success", false);
+                    result.put("error", "No function at " + addrStr);
+                    return result;
+                }
+                func.setName(name, SourceType.USER_DEFINED);
+            } else {
+                Symbol[] syms = currentProgram.getSymbolTable().getSymbols(addr);
+                if (syms != null && syms.length > 0) {
+                    syms[0].setName(name, SourceType.USER_DEFINED);
+                } else {
+                    currentProgram.getSymbolTable().createLabel(addr, name, SourceType.USER_DEFINED);
+                }
+            }
+            result.put("success", true);
+            println("Renamed " + addrStr + " to '" + name + "'");
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> setSignature(Map<String, Object> params) {
+        String addrStr = getString(params, "address", "");
+        String name = getString(params, "name", "");
+        String returnType = getString(params, "return_type", "void");
+        List<Object> paramTypesRaw = (List<Object>) params.getOrDefault("param_types", new ArrayList<>());
+        String callingConv = getString(params, "calling_conv", "cdecl");
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (addrStr.isEmpty()) {
+            result.put("success", false);
+            result.put("error", "Missing address");
+            return result;
+        }
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
+            if (addr == null) {
+                result.put("success", false);
+                result.put("error", "Invalid address: " + addrStr);
+                return result;
+            }
+            Function func = currentProgram.getFunctionManager().getFunctionAt(addr);
+            if (func == null) {
+                func = currentProgram.getFunctionManager().getFunctionContaining(addr);
+                if (func == null) {
+                    result.put("success", false);
+                    result.put("error", "No function at " + addrStr);
+                    return result;
+                }
+            }
+            // Rename
+            if (!name.isEmpty()) {
+                try { func.setName(name, SourceType.USER_DEFINED); } catch (Exception e) { /* best-effort */ }
+            }
+            // Set return type
+            if (!returnType.isEmpty() && !returnType.equals("void")) {
+                DataType rt = parseDataType(returnType);
+                if (rt != null) {
+                    try { func.setReturnType(rt, SourceType.USER_DEFINED); } catch (Exception e) { /* best-effort */ }
+                }
+            }
+            // Set parameters
+            if (!paramTypesRaw.isEmpty()) {
+                List<Parameter> paramsList = new ArrayList<>();
+                for (int i = 0; i < paramTypesRaw.size(); i++) {
+                    String ptStr = paramTypesRaw.get(i).toString();
+                    DataType pt = parseDataType(ptStr);
+                    if (pt != null) {
+                        paramsList.add(new ParameterImpl("param" + i, pt, currentProgram));
+                    }
+                }
+                if (!paramsList.isEmpty()) {
+                    func.replaceParameters(paramsList,
+                        Function.FunctionUpdateType.DYNAMIC_STORAGE_FORMAL_PARAMS,
+                        true, SourceType.USER_DEFINED);
+                }
+            }
+            result.put("success", true);
+            println("Signature applied to " + addrStr + ": " + name);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+        }
         return result;
     }
 

@@ -297,3 +297,90 @@ class DecompileResult:
             success=d.get("success", True),
             error=d.get("error", ""),
         )
+
+
+# ─── UI feature request models ───
+
+
+@dataclass
+class CommentRequest:
+    """
+    Request to set an end-of-line comment at a specific address in Ghidra.
+    """
+    address: int
+    comment: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "address": f"0x{self.address:x}",
+            "comment": self.comment,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CommentRequest":
+        addr = d.get("address", "0x0")
+        if isinstance(addr, str):
+            addr = int(addr, 16) if addr.startswith("0x") else int(addr)
+        return cls(address=addr, comment=d.get("comment", ""))
+
+
+@dataclass
+class RenameRequest:
+    """
+    Request to rename a symbol (function or data) at a specific address.
+    """
+    address: int
+    name: str
+    is_function: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "address": f"0x{self.address:x}",
+            "name": self.name,
+            "is_function": self.is_function,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "RenameRequest":
+        addr = d.get("address", "0x0")
+        if isinstance(addr, str):
+            addr = int(addr, 16) if addr.startswith("0x") else int(addr)
+        return cls(
+            address=addr,
+            name=d.get("name", ""),
+            is_function=d.get("is_function", True),
+        )
+
+
+@dataclass
+class SignatureRequest:
+    """
+    Request to set a full function signature (name, return type, params, calling convention).
+    """
+    address: int
+    name: str = ""
+    return_type: str = "void"
+    param_types: list[str] = field(default_factory=list)
+    calling_conv: str = "cdecl"
+
+    def to_dict(self) -> dict:
+        return {
+            "address": f"0x{self.address:x}",
+            "name": self.name,
+            "return_type": self.return_type,
+            "param_types": self.param_types,
+            "calling_conv": self.calling_conv,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SignatureRequest":
+        addr = d.get("address", "0x0")
+        if isinstance(addr, str):
+            addr = int(addr, 16) if addr.startswith("0x") else int(addr)
+        return cls(
+            address=addr,
+            name=d.get("name", ""),
+            return_type=d.get("return_type", "void"),
+            param_types=d.get("param_types", []),
+            calling_conv=d.get("calling_conv", "cdecl"),
+        )

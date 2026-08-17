@@ -160,3 +160,59 @@ class GhidraClient:
     def set_decompiler_options(self, options: dict) -> dict:
         """Set decompiler options."""
         return self._send_request("set_decompiler_options", {"options": options})
+
+    # ─── UI feature methods ───
+
+    def set_comment(self, address: str, comment: str) -> dict:
+        """
+        Set an end-of-line comment at a specific address in Ghidra.
+
+        Args:
+            address: hex string address (e.g., "0x401156")
+            comment: comment text
+
+        Returns:
+            {success: bool}
+        """
+        return self._send_request("set_comment", {"address": address, "comment": comment})
+
+    def rename_symbol(self, address: str, name: str, is_function: bool = True) -> dict:
+        """
+        Rename a symbol (function or data) at a specific address in Ghidra.
+
+        Args:
+            address: hex string address (e.g., "0x401156")
+            name: new name for the symbol
+            is_function: True if the symbol is a function, False for data
+
+        Returns:
+            {success: bool}
+        """
+        return self._send_request("rename_symbol", {
+            "address": address,
+            "name": name,
+            "is_function": is_function,
+        })
+
+    def set_signature(self, address: str, name: str, return_type: str,
+                      param_types: list[str], calling_conv: str = "cdecl") -> dict:
+        """
+        Set a full function signature in Ghidra.
+
+        Args:
+            address: hex string address (e.g., "0x401156")
+            name: function name
+            return_type: C return type string (e.g., "int", "void", "char *")
+            param_types: list of C type strings for parameters
+            calling_conv: calling convention (e.g., "cdecl", "stdcall")
+
+        Returns:
+            {success: bool}
+        """
+        return self._send_request("set_signature", {
+            "address": address,
+            "name": name,
+            "return_type": return_type,
+            "param_types": param_types,
+            "calling_conv": calling_conv,
+        })

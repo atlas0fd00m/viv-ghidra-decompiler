@@ -450,7 +450,7 @@ def mock_server():
         "ping": {"pong": True, "version": "1.0"},
         "get_status": {"program_loaded": True, "program_name": "test_binary"},
         "decompile_function": {
-            "c_code": "int main(int argc, char **argv) {\n  return 0;\n}",
+            "c_code": "int main(int argc, char **argv) {\n  return 0;\n}\n",
             "high_pcode": [],
             "function_name": "main",
             "success": True,
@@ -458,6 +458,19 @@ def mock_server():
         "get_function_list": {
             "functions": [{"name": "main", "address": "0x401000", "size": 100}]
         },
+    })
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture
+def mock_server_ui():
+    """A MockJsonRpcServer with responses for UI feature methods."""
+    server = MockJsonRpcServer(responses={
+        "set_comment": {"success": True},
+        "rename_symbol": {"success": True},
+        "set_signature": {"success": True},
     })
     server.start()
     yield server
