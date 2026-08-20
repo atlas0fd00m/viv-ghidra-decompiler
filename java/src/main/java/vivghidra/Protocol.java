@@ -17,6 +17,9 @@ public class Protocol {
     public static final String APPLY_SYMBOLS = "apply_symbols";
     public static final String GET_FUNCTION_LIST = "get_function_list";
     public static final String SET_DECOMPILER_OPTIONS = "set_decompiler_options";
+    public static final String SET_COMMENT = "set_comment";
+    public static final String RENAME_SYMBOL = "rename_symbol";
+    public static final String SET_SIGNATURE = "set_signature";
 
     // Parameter keys
     public static final String PARAM_ADDRESS = "address";
@@ -24,6 +27,12 @@ public class Protocol {
     public static final String PARAM_SYMBOLS = "symbols";
     public static final String PARAM_PCODE = "pcode";
     public static final String PARAM_OPTIONS = "options";
+    public static final String PARAM_COMMENT = "comment";
+    public static final String PARAM_NAME = "name";
+    public static final String PARAM_IS_FUNCTION = "is_function";
+    public static final String PARAM_RETURN_TYPE = "return_type";
+    public static final String PARAM_PARAM_TYPES = "param_types";
+    public static final String PARAM_CALLING_CONV = "calling_conv";
 
     // Result keys
     public static final String RESULT_PONG = "pong";

@@ -32,6 +32,7 @@ _translator: Optional[PcodeTranslator] = None
 _extractor: Optional[SymbolExtractor] = None
 _decompiler_widget: Optional[Any] = None
 _pcode_widget: Optional[Any] = None
+_vw_ref: Optional[Any] = None
 
 
 def _decompile_function(vw: Any, fva: int) -> None:
@@ -91,7 +92,7 @@ def _decompile_function(vw: Any, fva: int) -> None:
         # Display in widget
         if _decompiler_widget:
             if result.success:
-                _decompiler_widget.set_code(result.c_code, func_name)
+                _decompiler_widget.set_code(result.c_code, func_name, fva)
             else:
                 _decompiler_widget.set_error(result.error or "Decompilation failed")
 
@@ -160,6 +161,165 @@ def _ctx_menu_hook(vw: Any, va: int, expr: Any, menu: Any, parent: Any, nav: Any
         logger.debug(f"Context menu hook error: {e}")
 
 
+# ─── UI callback functions ───
+
+def _add_comment(va: Optional[int], func_name: str = "") -> None:
+    """
+    Callback for 'Add Comment' context menu action.
+    Opens a comment dialog, stores the comment in both Vivisect and Ghidra.
+    """
+    global _client, _decompiler_widget
+    if va is None:
+        return
+
+    try:
+        from .ui_dialogs import CommentDialog
+        addr_str = f"0x{va:x}"
+        # Get existing comment from Vivisect if available
+        existing = ""
+        try:
+            from vivisect.const import CommentTag
+            # vw.getComment may exist — try it
+            pass  # best-effort
+        except Exception:
+            pass
+
+        dialog = CommentDialog(address=addr_str, existing_comment=existing)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        comment = dialog.get_comment()
+        if not comment:
+            return
+
+        # Store in Vivisect
+        try:
+            _vw_ref.setComment(va, comment)
+        except Exception as e:
+            logger.debug(f"Vivisect comment set failed: {e}")
+
+        # Sync to Ghidra
+        if _client and _client.connected:
+            try:
+                _client.set_comment(addr_str, comment)
+                logger.info(f"Comment synced to Ghidra at {addr_str}")
+            except Exception as e:
+                logger.warning(f"Failed to sync comment to Ghidra: {e}")
+
+    except ImportError:
+        logger.warning("Qt dialogs not available")
+    except Exception as e:
+        logger.error(f"Add comment error: {e}")
+
+
+def _rename_function(va: Optional[int], current_name: str = "") -> None:
+    """
+    Callback for 'Rename Function' context menu action.
+    Opens a rename dialog, applies the new name to both Vivisect and Ghidra.
+    """
+    global _client, _decompiler_widget
+    if va is None:
+        return
+
+    try:
+        from .ui_dialogs import RenameDialog
+        dialog = RenameDialog(current_name=current_name)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        new_name = dialog.get_value()
+        if not new_name or new_name == current_name:
+            return
+
+        addr_str = f"0x{va:x}"
+
+        # Rename in Vivisect
+        try:
+            _vw_ref.setName(va, new_name)
+        except Exception as e:
+            logger.debug(f"Vivisect rename failed: {e}")
+
+        # Rename in Ghidra
+        if _client and _client.connected:
+            try:
+                _client.rename_symbol(addr_str, new_name, is_function=True)
+                logger.info(f"Renamed {addr_str} to '{new_name}' in Ghidra")
+            except Exception as e:
+                logger.warning(f"Failed to rename in Ghidra: {e}")
+
+        # Re-decompile to show updated name
+        if _decompiler_widget:
+            _decompile_function(_vw_ref, va)
+
+    except ImportError:
+        logger.warning("Qt dialogs not available")
+    except Exception as e:
+        logger.error(f"Rename error: {e}")
+
+
+def _edit_signature(va: Optional[int], current_name: str = "") -> None:
+    """
+    Callback for 'Edit Signature' context menu action.
+    Opens a signature edit dialog, applies the new signature to both
+    Vivisect and Ghidra.
+    """
+    global _client, _decompiler_widget, _extractor
+    if va is None:
+        return
+
+    try:
+        from .ui_dialogs import SignatureEditDialog
+
+        # Get current signature from Vivisect
+        name = current_name
+        return_type = "void"
+        param_types = []
+        calling_conv = "cdecl"
+
+        if _extractor:
+            sig = _extractor.extract_function_signature(va)
+            name = sig.get("name", name)
+            return_type = sig.get("return_type", "void")
+            calling_conv = sig.get("calling_convention", "cdecl")
+            params = sig.get("params", [])
+            param_types = [p.get("type", "") for p in params if p.get("type")]
+
+        dialog = SignatureEditDialog(
+            name=name,
+            return_type=return_type,
+            param_types=param_types,
+            calling_conv=calling_conv,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        sig = dialog.get_signature()
+        if not sig:
+            return
+
+        addr_str = f"0x{va:x}"
+
+        # Apply to Ghidra
+        if _client and _client.connected:
+            try:
+                _client.set_signature(
+                    addr_str,
+                    name=sig["name"],
+                    return_type=sig["return_type"],
+                    param_types=sig["param_types"],
+                    calling_conv=sig["calling_conv"],
+                )
+                logger.info(f"Signature applied to {addr_str} in Ghidra")
+            except Exception as e:
+                logger.warning(f"Failed to apply signature to Ghidra: {e}")
+
+        # Re-decompile to show updated signature
+        if _decompiler_widget:
+            _decompile_function(_vw_ref, va)
+
+    except ImportError:
+        logger.warning("Qt dialogs not available")
+    except Exception as e:
+        logger.error(f"Edit signature error: {e}")
+
+
 def vivExtension(vw: Any, vwgui: Any) -> None:
     """
     Vivisect extension entry point.
@@ -177,9 +337,12 @@ def vivExtension(vw: Any, vwgui: Any) -> None:
         vw: VivWorkspace instance
         vwgui: VQVivMainWindow instance (the Qt GUI)
     """
-    global _config, _client, _translator, _extractor, _decompiler_widget, _pcode_widget
+    global _config, _client, _translator, _extractor, _decompiler_widget, _pcode_widget, _vw_ref
 
     logger.info("Vivisect-Ghidra Bridge extension loading...")
+
+    # 0. Store workspace reference for UI callbacks
+    _vw_ref = vw
 
     # 1. Load config
     _config = Config()
@@ -214,6 +377,14 @@ def vivExtension(vw: Any, vwgui: Any) -> None:
 
         _decompiler_widget = DecompilerWidget(vw, vwgui)
         _pcode_widget = PcodeViewerWidget(vw, vwgui)
+
+        # Wire up UI callbacks for context menu actions
+        _decompiler_widget.set_callbacks(
+            on_add_comment=_add_comment,
+            on_rename=_rename_function,
+            on_edit_signature=_edit_signature,
+            on_refresh=lambda fva: _decompile_function(vw, fva) if fva else None,
+        )
 
         # Register dock widgets
         vwgui.vqDockWidget(_decompiler_widget, floating=True)

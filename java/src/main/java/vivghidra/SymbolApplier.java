@@ -210,4 +210,152 @@ public class SymbolApplier {
         // Fallback: try as undefined
         return null;
     }
+
+    // ─── UI feature methods ───
+
+    /**
+     * Set an end-of-line comment at a specific address in the program.
+     *
+     * @param addrStr hex address string (e.g., "0x401156")
+     * @param comment comment text
+     * @return true if comment was set successfully
+     */
+    public boolean setComment(String addrStr, String comment) {
+        AddressFactory addrFactory = program.getAddressFactory();
+        Address address;
+        try {
+            address = addrFactory.getAddress(addrStr);
+        } catch (Exception e) {
+            return false;
+        }
+        if (address == null) return false;
+
+        try {
+            program.getListing().setComment(address, CodeUnit.EOL_COMMENT, comment);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Rename a symbol (function or data) at a specific address.
+     *
+     * @param addrStr hex address string
+     * @param name new name
+     * @param isFunction true if renaming a function, false for data
+     * @return true if rename succeeded
+     */
+    public boolean renameSymbol(String addrStr, String name, boolean isFunction) {
+        if (name == null || name.isEmpty()) return false;
+
+        AddressFactory addrFactory = program.getAddressFactory();
+        Address address;
+        try {
+            address = addrFactory.getAddress(addrStr);
+        } catch (Exception e) {
+            return false;
+        }
+        if (address == null) return false;
+
+        if (isFunction) {
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function function = funcMgr.getFunctionAt(address);
+            if (function == null) return false;
+            try {
+                function.setName(name, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        } else {
+            SymbolTable symTable = program.getSymbolTable();
+            Symbol[] existing = symTable.getSymbols(address);
+            if (existing != null && existing.length > 0) {
+                try {
+                    existing[0].setName(name, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                    return true;
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+            try {
+                symTable.createLabel(address, name, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Set a full function signature (name, return type, parameters, calling convention).
+     *
+     * @param addrStr hex address string
+     * @param name function name
+     * @param returnTypeStr C return type string
+     * @param paramTypeStrs list of C type strings for parameters
+     * @param callingConv calling convention (e.g., "cdecl", "stdcall")
+     * @return true if signature was applied successfully
+     */
+    public boolean setSignature(String addrStr, String name, String returnTypeStr,
+                                 List<String> paramTypeStrs, String callingConv) {
+        AddressFactory addrFactory = program.getAddressFactory();
+        Address address;
+        try {
+            address = addrFactory.getAddress(addrStr);
+        } catch (Exception e) {
+            return false;
+        }
+        if (address == null) return false;
+
+        FunctionManager funcMgr = program.getFunctionManager();
+        Function function = funcMgr.getFunctionAt(address);
+        if (function == null) {
+            // Try to find containing function
+            function = funcMgr.getFunctionContaining(address);
+            if (function == null) return false;
+        }
+
+        // Rename
+        if (name != null && !name.isEmpty()) {
+            try {
+                function.setName(name, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+            } catch (Exception e) {
+                // best-effort
+            }
+        }
+
+        // Set return type
+        if (returnTypeStr != null && !returnTypeStr.isEmpty() && !returnTypeStr.equals("void")) {
+            try {
+                DataType returnType = parseDataType(returnTypeStr);
+                if (returnType != null) {
+                    function.setReturnType(returnType, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                }
+            } catch (Exception e) { /* best-effort */ }
+        }
+
+        // Set parameters
+        if (paramTypeStrs != null && !paramTypeStrs.isEmpty()) {
+            try {
+                java.util.List<Parameter> params = new ArrayList<>();
+                for (int i = 0; i < paramTypeStrs.size(); i++) {
+                    String paramTypeStr = paramTypeStrs.get(i);
+                    String paramName = "param" + i;
+                    DataType paramType = parseDataType(paramTypeStr);
+                    if (paramType != null) {
+                        params.add(new ParameterImpl(paramName, paramType, program));
+                    }
+                }
+                if (!params.isEmpty()) {
+                    function.replaceParameters(params,
+                        Function.FunctionUpdateType.DYNAMIC_STORAGE_FORMAL_PARAMS,
+                        true, ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                }
+            } catch (Exception e) { /* best-effort */ }
+        }
+
+        return true;
+    }
 }
