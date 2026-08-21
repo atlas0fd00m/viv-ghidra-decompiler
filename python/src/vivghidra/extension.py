@@ -320,6 +320,22 @@ def _edit_signature(va: Optional[int], current_name: str = "") -> None:
         logger.error(f"Edit signature error: {e}")
 
 
+def _navigate_in_vivisect(vw: Any, vwgui: Any, addr: int) -> None:
+    """
+    Navigate to an address in Vivisect's disassembly view.
+    Called when the user clicks an address or function name in the decompiler widget.
+    """
+    try:
+        if hasattr(vwgui, 'vqNavToVa'):
+            vwgui.vqNavToVa(addr)
+        elif hasattr(vwgui, 'navToVa'):
+            vwgui.navToVa(addr)
+        else:
+            logger.debug(f"Navigate to 0x{addr:x} (no GUI nav method available)")
+    except Exception as e:
+        logger.debug(f"Navigation failed: {e}")
+
+
 def vivExtension(vw: Any, vwgui: Any) -> None:
     """
     Vivisect extension entry point.
@@ -378,12 +394,13 @@ def vivExtension(vw: Any, vwgui: Any) -> None:
         _decompiler_widget = DecompilerWidget(vw, vwgui)
         _pcode_widget = PcodeViewerWidget(vw, vwgui)
 
-        # Wire up UI callbacks for context menu actions
+        # Wire up UI callbacks for context menu actions + navigation
         _decompiler_widget.set_callbacks(
             on_add_comment=_add_comment,
             on_rename=_rename_function,
             on_edit_signature=_edit_signature,
             on_refresh=lambda fva: _decompile_function(vw, fva) if fva else None,
+            on_navigate=lambda addr: _navigate_in_vivisect(vw, vwgui, addr),
         )
 
         # Register dock widgets
