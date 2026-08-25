@@ -35,6 +35,99 @@ _pcode_widget: Optional[Any] = None
 _vw_ref: Optional[Any] = None
 
 
+# Address mapping cache — Vivisect base → Ghidra base
+_addr_map_cache: dict = {}
+
+def _map_viv_to_ghidra_address(vw: Any, viv_addr: int) -> int:
+    """
+    Map a Vivisect virtual address to the corresponding Ghidra address.
+
+    PIE binaries are loaded at different base addresses by different tools.
+    This function computes the file offset from the Vivisect address and
+    maps it to Ghidra's address space.
+
+    The mapping is: ghidra_addr = viv_addr - viv_base + ghidra_base
+
+    For non-PIE binaries where bases match, this is a no-op.
+    """
+    global _addr_map_cache, _client
+
+    # Fast path: if we've already computed the offset, use it
+    if "offset" in _addr_map_cache:
+        return viv_addr + _addr_map_cache["offset"]
+
+    # Get Vivisect image base
+    viv_base = 0
+    try:
+        viv_base = vw.getMeta("ImageBase", 0) or 0
+    except Exception:
+        pass
+
+    # Get Ghidra image base from the server
+    ghidra_base = 0
+    if _client and _client.connected:
+        try:
+            # Get a function from Ghidra and compare with the same function's file offset
+            func_list = _client.get_function_list()
+            functions = func_list.get("functions", [])
+            if functions:
+                ghidra_addr = int(functions[0].get("address", "0"), 16)
+                # The file offset = ghidra_addr - ghidra_base
+                # We don't know ghidra_base directly, but we can infer it:
+                # Find a function that Vivisect also found, compare addresses
+                for f in functions:
+                    g_addr = int(f.get("address", "0"), 16)
+                    g_name = f.get("name", "")
+                    # Try to find this function in Vivisect by offset
+                    # File offset = g_addr - ghidra_base
+                    # viv_addr = file_offset + viv_base
+                    # So: ghidra_base = g_addr - (viv_addr - viv_base)
+                    # We need to find a matching function...
+                    # Simpler: just try to compute the offset from the entry point
+                    pass
+        except Exception:
+            pass
+
+    # Simpler approach: compute offset from Ghidra's first function address
+    # and Vivisect's first function address with the same name
+    if _client and _client.connected:
+        try:
+            func_list = _client.get_function_list()
+            ghidra_funcs = func_list.get("functions", [])
+
+            # Get Vivisect functions
+            viv_funcs = {}
+            try:
+                for vfva in vw.getFunctions():
+                    vname = vw.getName(vfva) or ""
+                    # Strip the filename prefix that Vivisect adds
+                    if "." in vname:
+                        vname = vname.split(".")[-1]
+                    # Strip plt_ prefix (Vivisect adds it to PLT stubs)
+                    if vname.startswith("plt_"):
+                        vname = vname[4:]
+                    viv_funcs[vname] = vfva
+            except Exception:
+                pass
+
+            # Find a matching function name
+            for gf in ghidra_funcs:
+                gname = gf.get("name", "")
+                if gname in viv_funcs:
+                    g_addr = int(gf.get("address", "0"), 16)
+                    v_addr = viv_funcs[gname]
+                    offset = g_addr - v_addr
+                    _addr_map_cache["offset"] = offset
+                    logger.info(f"Address mapping: Ghidra-Vivisect offset = {offset:#x} (matched on '{gname}')")
+                    return viv_addr + offset
+        except Exception as e:
+            logger.debug(f"Address mapping failed: {e}")
+
+    # No mapping needed or possible — return as-is
+    _addr_map_cache["offset"] = 0
+    return viv_addr
+
+
 def _decompile_function(vw: Any, fva: int) -> None:
     """
     Decompile a function using the Ghidra backend.
@@ -56,11 +149,17 @@ def _decompile_function(vw: Any, fva: int) -> None:
         # Get function name
         func_name = vw.getName(fva) or f"sub_{fva:x}"
 
+        # Map Vivisect address to Ghidra address space (PIE binaries have different bases)
+        ghidra_fva = _map_viv_to_ghidra_address(vw, fva)
+
         # Extract symbols for enrichment (Mode 1)
         symbols = []
         pcode_ops = []
         if _extractor:
             sym_infos = _extractor.extract_for_function(fva)
+            # Map symbol addresses to Ghidra's address space
+            for s in sym_infos:
+                s.address = _map_viv_to_ghidra_address(vw, s.address)
             symbols = [s.to_dict() for s in sym_infos]
 
         # Translate symbolik effects to p-code (Mode 2 — optional)
@@ -76,7 +175,7 @@ def _decompile_function(vw: Any, fva: int) -> None:
 
         # Build and send request
         req = DecompileRequest(
-            address=fva,
+            address=ghidra_fva,
             mode="enriched" if symbols else "standard",
             symbols=[],  # populated from SymbolInfo objects if needed
             pcode=pcode_ops,
