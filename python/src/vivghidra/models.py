@@ -250,7 +250,15 @@ class SymbolInfo:
     return_type: str = ""
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Format address as hex string for Ghidra compatibility
+        d["address"] = f"0x{self.address:x}"
+        # Clean up Vivisect name prefixes (*. prefix, plt_ prefix)
+        if d.get("name", "").startswith("*."):
+            d["name"] = d["name"][2:]
+        if d.get("name", "").startswith("plt_"):
+            d["name"] = d["name"][4:]
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "SymbolInfo":
